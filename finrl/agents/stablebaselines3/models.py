@@ -247,7 +247,7 @@ class DRLEnsembleAgent:
         tech_indicator_list,
         print_verbosity,
     ):
-
+        print('asdfasdf')
         self.df = df
         self.train_period = train_period
         self.val_test_period = val_test_period

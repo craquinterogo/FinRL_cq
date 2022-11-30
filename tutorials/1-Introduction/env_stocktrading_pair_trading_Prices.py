@@ -62,7 +62,7 @@ class StockPairTradingEnv(gym.Env):
 
         # === OP 1 (ini)
         # CRK : Change to shape=1 [-1:sell, 0:hold, 1:buy] the Pair traded
-        self.action_space = spaces.Box(low=-1.0, high=1.0,shape=(1,), dtype=np.float32,)
+        self.action_space = spaces.Box(low=-1.0, high=1.0,shape=(self.action_space,), dtype=np.float32,)
         # === OP 1 (end)
 
         # === OP 2 (ini)
@@ -113,13 +113,25 @@ class StockPairTradingEnv(gym.Env):
 
     def _sell_stock(self, index, action):
         def _do_sell_normal():
-            if self.state[index + 1] > 0:
-            # Sell only if the price is > 0 (no missing data in this particular date)
+            if (
+                self.state[index + 2 * self.stock_dim + 1] != True
+            ):  # check if the stock is able to sell, for simlicity we just add it in techical index
+                # if self.state[index + 1] > 0: # if we use price<0 to denote a stock is unable to trade in that day, the total asset calculation may be wrong for the price is unreasonable
+                # Sell only if the price is > 0 (no missing data in this particular date)
+                # perform sell action based on the sign of the action
+                # if self.state[index + self.stock_dim + 1] > 0:
+                # Sell only if current asset is > 0
+
+                # sell_num_shares = min(
+                #     abs(action), self.state[index + self.stock_dim + 1]
+                # )
+                # 0.1% for short positions
+                additional_cost_short_postition = 0.001 if self.state[index + self.stock_dim + 1] <= 0 else 0
                 sell_num_shares = abs(action)
                 sell_amount = (
                     self.state[index + 1]
                     * sell_num_shares
-                    * (1 - self.sell_cost_pct[index])
+                    * (1 - (self.sell_cost_pct[index] + additional_cost_short_postition) )
                 )
                 # update balance
                 self.state[0] += sell_amount
@@ -131,53 +143,61 @@ class StockPairTradingEnv(gym.Env):
                     * self.sell_cost_pct[index]
                 )
                 self.trades += 1
+                # else:
+                #     sell_num_shares = 0
             else:
                 sell_num_shares = 0
+
             return sell_num_shares
 
         # perform sell action based on the sign of the action
-        # if self.turbulence_threshold is not None:
-        #     if self.turbulence >= self.turbulence_threshold:
-        #         if self.state[index + 1] > 0:
-        #             ## IT IS ALLOW SHORT-POSITIONS to zero borrowing cost
-        #             # Sell only if the price is > 0 (no missing data in this particular date)
-        #             # if turbulence goes over threshold, just clear out all positions
-                    
-        #             sell_num_shares = abs(action)
-        #             sell_amount = (
-        #                 self.state[index + 1]
-        #                 * sell_num_shares
-        #                 * (1 - self.sell_cost_pct[index])
-        #             )
-        #             # update balance
-        #             self.state[0] += sell_amount
-        #             self.state[index + self.stock_dim + 1] -= sell_num_shares
-        #             self.cost += (
-        #                 self.state[index + 1]
-        #                 * sell_num_shares
-        #                 * self.sell_cost_pct[index]
-        #             )
-        #             self.trades += 1
-        #         else:
-        #             sell_num_shares = 0
-        #     else:
-        #         sell_num_shares = _do_sell_normal()
-        # else:
-        sell_num_shares = _do_sell_normal()
+        if self.turbulence_threshold is not None:
+            if self.turbulence >= self.turbulence_threshold:
+                if self.state[index + 1] > 0:
+                    # Sell only if the price is > 0 (no missing data in this particular date)
+                    # if turbulence goes over threshold, just clear out all positions
+                    # if self.state[index + self.stock_dim + 1] > 0:
+                    # Sell only if current asset is > 0
+                    sell_num_shares = self.state[index + self.stock_dim + 1]
+                    sell_amount = (
+                        self.state[index + 1]
+                        * sell_num_shares
+                        * (1 - self.sell_cost_pct[index])
+                    )
+                    # update balance
+                    self.state[0] += sell_amount
+                    self.state[index + self.stock_dim + 1] = 0
+                    self.cost += (
+                        self.state[index + 1]
+                        * sell_num_shares
+                        * self.sell_cost_pct[index]
+                    )
+                    self.trades += 1
+                    # else:
+                    #     sell_num_shares = 0
+                else:
+                    sell_num_shares = 0
+            else:
+                sell_num_shares = _do_sell_normal()
+        else:
+            sell_num_shares = _do_sell_normal()
 
         return sell_num_shares
 
     def _buy_stock(self, index, action):
         def _do_buy():
-            if self.state[index + 1] > 0:
-            # Buy only if the price is > 0 (no missing data in this particular date)
+            if (
+                self.state[index + 2 * self.stock_dim + 1] != True
+            ):  # check if the stock is able to buy
+                # if self.state[index + 1] >0:
+                # Buy only if the price is > 0 (no missing data in this particular date)
                 available_amount = self.state[0] // (
                     self.state[index + 1] * (1 + self.buy_cost_pct[index])
                 )  # when buying stocks, we should consider the cost of trading when calculating available_amount, or we may be have cash<0
                 # print('available_amount:{}'.format(available_amount))
 
                 # update balance
-                buy_num_shares = min(available_amount, abs(action))
+                buy_num_shares = min(available_amount, action)
                 buy_amount = (
                     self.state[index + 1]
                     * buy_num_shares
@@ -197,14 +217,14 @@ class StockPairTradingEnv(gym.Env):
             return buy_num_shares
 
         # perform buy action based on the sign of the action
-        # if self.turbulence_threshold is None:
-        buy_num_shares = _do_buy()
-        # else:
-        #     if self.turbulence < self.turbulence_threshold:
-        #         buy_num_shares = _do_buy()
-        #     else:
-        #         buy_num_shares = 0
-        #         pass
+        if self.turbulence_threshold is None:
+            buy_num_shares = _do_buy()
+        else:
+            if self.turbulence < self.turbulence_threshold:
+                buy_num_shares = _do_buy()
+            else:
+                buy_num_shares = 0
+                pass
 
         return buy_num_shares
 
@@ -263,40 +283,33 @@ class StockPairTradingEnv(gym.Env):
                     print(f"Sharpe: {sharpe:0.3f}")
                 print("=================================")
 
-            # if (self.model_name != "") and (self.mode != ""):
-            # df_state_memory_to_file = self.save_state_memory()
-            # df_state_memory_to_file.to_excel(
-            #     "results/state_memory_{}_{}_{}_ep{}.xlsx".format(
-            #         self.mode, self.model_name, self.iteration, self.episode
-            #     )
-            # )
-
-            # df_actions = self.save_action_memory()
-            # df_actions.to_csv(
-            #     "results/actions_{}_{}_{}_ep{}.csv".format(
-            #         self.mode, self.model_name, self.iteration, self.episode
-            #     )
-            # )
-            # df_total_value.to_csv(
-            #     "results/account_value_{}_{}_{}_ep{}.csv".format(
-            #         self.mode, self.model_name, self.iteration, self.episode
-            #     ),
-            #     index=False,
-            # )
-            # df_rewards.to_csv(
-            #     "results/account_rewards_{}_{}_{}_ep{}.csv".format(
-            #         self.mode, self.model_name, self.iteration, self.episode
-            #     ),
-            #     index=False,
-            # )
-            plt.plot(self.asset_memory, "r")
-            plt.savefig(
-                "results/account_value_{}_{}_{}_ep{}.png".format(
-                    self.mode, self.model_name, self.iteration, self.episode
-                ),
-                index=False,
-            )
-            plt.close()
+            if (self.model_name != "") and (self.mode != ""):
+                df_actions = self.save_action_memory()
+                df_actions.to_csv(
+                    "results/actions_{}_{}_{}.csv".format(
+                        self.mode, self.model_name, self.iteration
+                    )
+                )
+                df_total_value.to_csv(
+                    "results/account_value_{}_{}_{}.csv".format(
+                        self.mode, self.model_name, self.iteration
+                    ),
+                    index=False,
+                )
+                df_rewards.to_csv(
+                    "results/account_rewards_{}_{}_{}.csv".format(
+                        self.mode, self.model_name, self.iteration
+                    ),
+                    index=False,
+                )
+                plt.plot(self.asset_memory, "r")
+                plt.savefig(
+                    "results/account_value_{}_{}_{}.png".format(
+                        self.mode, self.model_name, self.iteration
+                    ),
+                    index=False,
+                )
+                plt.close()
 
             # Add outputs to logger interface
             # logger.record("environment/portfolio_value", end_total_asset)
@@ -325,34 +338,60 @@ class StockPairTradingEnv(gym.Env):
             # print("begin_total_asset:{}".format(begin_total_asset))
 
             # ====== OP 1 (ini)
-            B_ = S_ = 0
-            print('self.state[0] :: \t',self.state[0])
-            if actions[0] == 1: # Long in Pair Traded
-                B_ = self._buy_stock(0, actions[0])
-                S_ = self._sell_stock(1, actions[0]) * (-1) if B_ > 0 else 0
-            elif actions[0] == -1: # Short in Pair Traded
-                S_ = self._sell_stock(0, actions[0]) * (-1)
-                B_ = self._buy_stock(1, actions[0]) if S_ < 0 else 0
-            
-            if (actions[0] != 0) & (B_ == 0) & (B_ == 0):
+            if (actions[0] == 0) | (actions[1] == 0):
                 actions[0] = 0
+                actions[1] = 0
+            else:
+                B_ = S_ = 0
+                # print('self.state[0] :: \t',self.state[0])
+                random_ = np.random.randint(0,2)
+                P_A = self.state[0 + 1]
+                P_B = self.state[1 + 1]
+                a_lower_b = P_A < P_B
+                beta_ = np.floor(P_B / P_A) if a_lower_b else np.floor(P_A / P_B)
+                beta_a = beta_ if a_lower_b else 1
+                beta_b = beta_ if not a_lower_b else 1
+                
+                sign_A = np.sign(actions[0])
+                sign_B = np.sign(actions[1])
+                # print(f'actions[0] : {actions[0]} \t : actions[1] : {actions[1]}')
+                # print(f'P_A : {P_A}:{sign_A}, \tP_B : {P_B}:{sign_B}')
+                # print(f'>> ORIGINAL : beta = {beta_}, \tbeta_A : {beta_a}, \tbeta_B : {beta_b}, \trandom = {random_}\n',actions)
+
+                if random_ == 0: # Selection based on A prices
+                    actions[0] = beta_a * sign_A * abs(actions[0])
+                    actions[1] = beta_b * sign_B * abs(actions[0])
+                else: # Selection based on B prices
+                    actions[0] = beta_a * sign_A * abs(actions[1])
+                    actions[1] = beta_b * sign_B * abs(actions[1])
+                # print('>> MODIFIED : \n',actions,'\n')
+                # if actions[random_] > 0: # Long in Pair Traded
+                #     B_ = self._buy_stock(0, actions[0])
+                #     S_ = self._sell_stock(1, actions[1]) * (-1) if B_ > 0 else 0
+                # elif actions[random_] < 0: # Short in Pair Traded
+                #     S_ = self._sell_stock(0, beta_a * actions[0]) * (-1)
+                #     B_ = self._buy_stock(1, beta_b * actions[0]) if S_ < 0 else 0
+                
+            # if (actions[0] != 0) & ((B_ == 0) | (S_ == 0)):
+            #     raise Exception('Something wrong Bying or Selling')
+            #     actions[0] = 0
             # ====== OP 1 (end)
 
             # ====== OP 2 (ini)
-            # argsort_actions = np.argsort(actions)
-            # sell_index = argsort_actions[: np.where(actions < 0)[0].shape[0]]
-            # buy_index = argsort_actions[::-1][: np.where(actions > 0)[0].shape[0]]
+            argsort_actions = np.argsort(actions)
+            sell_index = argsort_actions[: np.where(actions < 0)[0].shape[0]]
+            buy_index = argsort_actions[::-1][: np.where(actions > 0)[0].shape[0]]
 
-            # for index in sell_index:
+            for index in sell_index:
             #     # print(f"Num shares before: {self.state[index+self.stock_dim+1]}")
             #     # print(f'take sell action before : {actions[index]}')
-            #     actions[index] = self._sell_stock(index, actions[index]) * (-1)
+                actions[index] = self._sell_stock(index, actions[index]) * (-1)
             #     # print(f'take sell action after : {actions[index]}')
             #     # print(f"Num shares after: {self.state[index+self.stock_dim+1]}")
 
-            # for index in buy_index:
+            for index in buy_index:
             #     # print('take buy action: {}'.format(actions[index]))
-            #     actions[index] = self._buy_stock(index, actions[index])
+                actions[index] = self._buy_stock(index, actions[index])
             # ====== OP 2 (end)
 
             self.actions_memory.append(actions)
@@ -365,7 +404,7 @@ class StockPairTradingEnv(gym.Env):
                     self.turbulence = self.data[self.risk_indicator_col]
                 elif len(self.df.tic.unique()) > 1:
                     self.turbulence = self.data[self.risk_indicator_col].values[0]
-            print(f'--- >> \t self.state {self.day} : ',self.state)
+            # print(f'--- >> \t self.state {self.day} : ',self.state)
             self.state = self._update_state()
 
             end_total_asset = self.state[0] + sum(
@@ -380,7 +419,7 @@ class StockPairTradingEnv(gym.Env):
             self.state_memory.append(
                 self.state
             )  # add current state in state_recorder for each step
-            print('actions[0] :: ',actions[0], f'\tB_:{B_}\t',f'\tS_:{S_}\t',f'Assets: {self.state[(self.stock_dim + 1) : (self.stock_dim * 2 + 1)]}\t','self.reward >> ',self.reward,'\n')
+            # print('actions[0] :: ',actions[0], f'\tB_:{B_}\t',f'\tS_:{S_}\t',f'Assets: {self.state[(self.stock_dim + 1) : (self.stock_dim * 2 + 1)]}\t','self.reward >> ',self.reward,'\n')
             # print('self.reward >> ',self.reward, '\t actions[index] :: ',actions,' :: \tamount :: ',self.state[0])
 
         return self.state, self.reward, self.terminal, {}
@@ -563,7 +602,7 @@ class StockPairTradingEnv(gym.Env):
             action_list = self.actions_memory
             df_actions = pd.DataFrame(action_list)
 
-            df_actions.columns = ['L/S'] # === OPT 1
+            # df_actions.columns = ['L/S'] # === OPT 1
             # df_actions.columns = self.data.tic.values # === OPT 2
             
             df_actions.index = df_date.date
