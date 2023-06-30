@@ -17,9 +17,9 @@ from stable_baselines3.common.vec_env import DummyVecEnv
 
 from finrl import config
 # from finrl.meta.env_stock_trading.env_stocktrading_pair_trading_Prices import StockPairTradingEnv as StockTradingEnv
-# from finrl.meta.env_stock_trading.env_stocktrading_pair_trading_ACTION import StockTradingEnv
-from finrl.meta.env_stock_trading.env_stocktrading_pair_trading_balanced import StockTradingEnv
-# from finrl.meta.env_stock_trading.env_stocktrading import StockTradingEnv
+# from finrl.meta.env_stock_trading.env_stocktrading_pair_trading_action import StockTradingEnv
+# from finrl.meta.env_stock_trading.env_stocktrading_pair_trading_balanced import StockTradingEnv
+from finrl.meta.env_stock_trading.env_stocktrading import StockTradingEnv
 from finrl.meta.preprocessor.preprocessors import data_split
 
 MODELS = {"a2c": A2C, "ddpg": DDPG, "td3": TD3, "sac": SAC, "ppo": PPO}
@@ -792,6 +792,7 @@ class DRLEnsembleAgentOne:
         action_space,
         tech_indicator_list,
         print_verbosity,
+        stock_trading_env,
         seed=None,
     ):
 
@@ -817,6 +818,7 @@ class DRLEnsembleAgentOne:
         self.print_verbosity = print_verbosity
         self.crk_model = []
         self.seed = seed
+        self.stock_trading_env = stock_trading_env ## Dependency inyection
 
     def DRL_validation(self, model, test_data, test_env, test_obs):
         """validation process"""
@@ -837,7 +839,7 @@ class DRLEnsembleAgentOne:
         )
         trade_env = DummyVecEnv(
             [
-                lambda: StockTradingEnv(
+                lambda: self.stock_trading_env(
                     df=trade_data,
                     stock_dim=self.stock_dim,
                     hmax=self.hmax,
@@ -978,7 +980,7 @@ class DRLEnsembleAgentOne:
             )
             self.train_env = DummyVecEnv(
                 [
-                    lambda: StockTradingEnv(
+                    lambda: self.stock_trading_env(
                         df=train,
                         stock_dim=self.stock_dim,
                         hmax=self.hmax,
@@ -1046,7 +1048,7 @@ class DRLEnsembleAgentOne:
                 )
                 val_env_a2c = DummyVecEnv(
                     [
-                        lambda: StockTradingEnv(
+                        lambda: self.stock_trading_env(
                             df=validation,
                             stock_dim=self.stock_dim,
                             hmax=self.hmax,
@@ -1100,7 +1102,7 @@ class DRLEnsembleAgentOne:
                 )
                 val_env_ppo = DummyVecEnv(
                     [
-                        lambda: StockTradingEnv(
+                        lambda: self.stock_trading_env(
                             df=validation,
                             stock_dim=self.stock_dim,
                             hmax=self.hmax,
@@ -1154,7 +1156,7 @@ class DRLEnsembleAgentOne:
                 )
                 val_env_ddpg = DummyVecEnv(
                     [
-                        lambda: StockTradingEnv(
+                        lambda: self.stock_trading_env(
                             df=validation,
                             stock_dim=self.stock_dim,
                             hmax=self.hmax,
